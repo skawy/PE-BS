@@ -1,0 +1,620 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Dashboard Assistant</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<style>
+  :root {
+    --blue: #3662a8;
+    --blue-dark: #2b4f8a;
+    --teal: #438a96;
+    --green: #6ccc84;
+    --bg: #f4f4f4;
+    --surface: #ffffff;
+    --line: #dcdfe4;
+    --grid: #eef0f3;
+    --text: #1f2a3a;
+    --muted: #7a8494;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body {
+    font-family: "Segoe UI", -apple-system, Roboto, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    display: flex;
+  }
+
+  /* Teal-to-green strip, like the dashboard sidebar */
+  .strip {
+    width: 10px;
+    flex-shrink: 0;
+    background: linear-gradient(to bottom, var(--teal), var(--green));
+  }
+
+  .app { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+
+  header {
+    background: var(--blue);
+    color: #fff;
+    padding: 12px 18px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  header h1 { font-size: 16px; font-weight: 600; margin: 0; }
+  #clear {
+    background: transparent;
+    color: #fff;
+    border: 1px solid rgba(255,255,255,.6);
+    border-radius: 4px;
+    padding: 5px 12px;
+    font: inherit;
+    font-size: 13px;
+    cursor: pointer;
+  }
+  #clear:hover { background: rgba(255,255,255,.15); }
+
+  #chat {
+    flex: 1;
+    overflow-y: auto;
+    padding: 18px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+  .empty {
+    margin: auto;
+    color: var(--muted);
+    font-size: 14px;
+    text-align: center;
+    max-width: 560px;
+  }
+  .examples { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; margin-top: 14px; }
+  .example {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 16px;
+    padding: 6px 12px;
+    font: inherit;
+    font-size: 13px;
+    color: var(--blue-dark);
+    cursor: pointer;
+  }
+  .example:hover { border-color: var(--blue); background: #eef3fb; }
+
+  .msg {
+    max-width: 78%;
+    padding: 9px 13px;
+    border-radius: 8px;
+    white-space: pre-wrap;
+    line-height: 1.45;
+    font-size: 14px;
+  }
+  .user {
+    align-self: flex-end;
+    background: var(--blue);
+    color: #fff;
+    border-bottom-right-radius: 2px;
+  }
+  .assistant {
+    align-self: flex-start;
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-left: 3px solid var(--green);
+    border-bottom-left-radius: 2px;
+  }
+  .error {
+    align-self: flex-start;
+    background: #fff4f4;
+    border: 1px solid #f0b4b4;
+    color: #a12a2a;
+  }
+  .typing { color: var(--muted); font-style: italic; }
+  .source {
+    display: block;
+    margin-top: 8px;
+    font-size: 11px;
+    color: var(--muted);
+    white-space: normal;
+  }
+
+  /* Result area: chart / cards / table (built from data.metadata) */
+  .msg.has-result { max-width: 100%; width: 100%; }
+  .result { margin-top: 10px; white-space: normal; }
+  .result-note { margin-top: 6px; font-size: 12px; color: var(--muted); }
+  .toggle {
+    margin-top: 8px;
+    background: transparent;
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    padding: 4px 10px;
+    font: inherit;
+    font-size: 12px;
+    color: var(--blue-dark);
+    cursor: pointer;
+  }
+  .toggle:hover { border-color: var(--blue); }
+
+  .table-wrap {
+    max-height: 420px;
+    overflow: auto;
+    border: 1px solid var(--line);
+    border-radius: 6px;
+  }
+  .data-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+    font-variant-numeric: tabular-nums;
+  }
+  .data-table th, .data-table td {
+    padding: 7px 12px;
+    border-bottom: 1px solid var(--line);
+    text-align: left;
+    white-space: nowrap;
+  }
+  .data-table th {
+    position: sticky;
+    top: 0;
+    background: var(--blue);
+    color: #fff;
+    font-weight: 600;
+  }
+  .data-table .num { text-align: right; }
+  .data-table tbody tr:nth-child(even) { background: #f7f8fa; }
+  .data-table tbody tr:hover { background: #eef3fb; }
+
+  .chart-box { position: relative; width: 100%; max-width: 900px; }
+
+  /* Pie / donut: chart + legend table carrying the exact numbers */
+  .pie-box { display: flex; align-items: center; gap: 24px; flex-wrap: wrap; }
+  .pie-box .chart-box { width: 220px; height: 220px; flex-shrink: 0; }
+  .pie-legend { font-size: 13px; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+  .pie-legend td { padding: 3px 8px; }
+  .pie-legend .num { text-align: right; }
+  .pie-legend .total td { border-top: 1px solid var(--line); font-weight: 600; }
+  .swatch { display: inline-block; width: 12px; height: 12px; border-radius: 3px; }
+
+  /* KPI cards */
+  .cards-subtitle { font-size: 12px; color: var(--muted); margin-bottom: 6px; }
+  .cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 10px; }
+  .card {
+    border: 1px solid var(--line);
+    border-top: 3px solid var(--blue);
+    border-radius: 6px;
+    padding: 10px 12px;
+    background: var(--surface);
+  }
+  .card-label { font-size: 12px; color: var(--muted); }
+  .card-value { font-size: 20px; font-weight: 600; margin-top: 4px; font-variant-numeric: tabular-nums; }
+  .card-value.negative { color: #b42318; }
+
+  form {
+    display: flex;
+    gap: 8px;
+    padding: 12px 18px;
+    background: var(--surface);
+    border-top: 1px solid var(--line);
+  }
+  textarea {
+    flex: 1;
+    resize: none;
+    height: 44px;
+    padding: 10px 12px;
+    font: inherit;
+    font-size: 14px;
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    outline: none;
+  }
+  textarea:focus { border-color: var(--blue); }
+  #send {
+    padding: 0 22px;
+    background: var(--blue);
+    color: #fff;
+    border: 0;
+    border-radius: 6px;
+    font: inherit;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  #send:hover { background: var(--blue-dark); }
+  #send:disabled { opacity: .5; cursor: wait; }
+  button:focus-visible, textarea:focus-visible { outline: 2px solid var(--green); outline-offset: 2px; }
+
+  @media (max-width: 600px) {
+    #chat { padding: 12px; }
+    .msg { max-width: 92%; }
+    form { padding: 10px 12px; }
+  }
+</style>
+</head>
+<body>
+<div class="strip"></div>
+
+<div class="app">
+  <header>
+    <h1>Dashboard Assistant</h1>
+    <button id="clear" type="button">Clear chat</button>
+  </header>
+
+  <div id="chat"></div>
+
+  <form id="form">
+    <textarea id="input" placeholder="Ask about costs, EBITDA, targets, headcount… or a term like YTG"></textarea>
+    <button id="send">Send</button>
+  </form>
+</div>
+
+<script>
+  // Change this to your backend URL
+  const BACKEND_URL = "http://127.0.0.1:8000";
+//   const BACKEND_URL = "https://ca-weu-ask-dashboard.bluecliff-8a2afeab.westeurope.azurecontainerapps.io";
+  const MAX_HISTORY = 20;
+
+  const EXAMPLES = [
+    "How is YTD EBITDA doing vs target?",
+    "Monthly actual vs billing shell cost as a line chart",
+    "YTD actual cost by center as a pie chart",
+    "Full year EBITDA by manager as a bar chart",
+    "What does YTG mean?",
+    "Top 10 cost centers by full year actual cost",
+  ];
+
+  // Categorical colours in a fixed, colour-blind-checked order (never cycled past 8 series).
+  const SERIES_COLORS = ["#2a78d6", "#eb6834", "#1baf7a", "#eda100", "#e87ba4", "#008300", "#4a3aa7", "#e34948"];
+  const OTHER_COLOR = "#b8bec8";
+  const SOURCE_LABELS = {
+    kpi_summary: "Answered from the precomputed KPI summary",
+    need_pandas: "Computed from the data",
+    general: "From the dashboard definitions and glossary",
+  };
+
+  const chat = document.getElementById("chat");
+  const input = document.getElementById("input");
+  const send = document.getElementById("send");
+  let history = [];
+  let charts = [];
+
+  function showEmpty() {
+    chat.innerHTML = "";
+    const empty = document.createElement("div");
+    empty.className = "empty";
+    empty.textContent = "Ask anything about the dashboard: numbers, comparisons, charts or what a term means.";
+    const list = document.createElement("div");
+    list.className = "examples";
+    for (const text of EXAMPLES) {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.className = "example";
+      b.textContent = text;
+      b.addEventListener("click", () => { if (!send.disabled) sendMessage(text); });
+      list.appendChild(b);
+    }
+    empty.appendChild(list);
+    chat.appendChild(empty);
+  }
+
+  function bubble(cls, text) {
+    chat.querySelector(".empty")?.remove();
+    const div = document.createElement("div");
+    div.className = "msg " + cls;
+    div.textContent = text;
+    chat.appendChild(div);
+    chat.scrollTop = chat.scrollHeight;
+    return div;
+  }
+
+  // Show the model's **bold** markdown as bold text; everything else stays plain text (no HTML is parsed).
+  function renderAnswer(el, text) {
+    el.textContent = "";
+    text.split(/(\*\*[^*]+\*\*)/g).forEach((part) => {
+      if (part.startsWith("**") && part.endsWith("**") && part.length > 4) {
+        const b = document.createElement("strong");
+        b.textContent = part.slice(2, -2);
+        el.appendChild(b);
+      } else if (part) {
+        el.appendChild(document.createTextNode(part));
+      }
+    });
+  }
+
+  function note(container, text) {
+    if (!text) return;
+    const div = document.createElement("div");
+    div.className = "result-note";
+    div.textContent = text;
+    container.appendChild(div);
+  }
+
+  // table = { columns: [{label, type}], rows: [[cell, ...]], total_rows, shown_rows } from the backend
+  function renderTable(container, table) {
+    const wrap = document.createElement("div");
+    wrap.className = "table-wrap";
+    const el = document.createElement("table");
+    el.className = "data-table";
+
+    const headRow = el.createTHead().insertRow();
+    for (const col of table.columns) {
+      const th = document.createElement("th");
+      th.textContent = col.label;
+      if (col.type === "number") th.className = "num";
+      headRow.appendChild(th);
+    }
+
+    const body = el.createTBody();
+    for (const row of table.rows) {
+      const tr = body.insertRow();
+      row.forEach((cell, i) => {
+        const td = tr.insertCell();
+        td.textContent = cell;
+        if (table.columns[i]?.type === "number") td.className = "num";
+      });
+    }
+
+    wrap.appendChild(el);
+    container.appendChild(wrap);
+    if (table.total_rows > table.shown_rows) note(container, `Showing ${table.shown_rows} of ${table.total_rows} rows`);
+  }
+
+  // chart = { type: "cards", subtitle, cards: [{label, value_text, value}] }
+  function renderCards(container, chart) {
+    if (chart.subtitle) {
+      const sub = document.createElement("div");
+      sub.className = "cards-subtitle";
+      sub.textContent = chart.subtitle;
+      container.appendChild(sub);
+    }
+    const grid = document.createElement("div");
+    grid.className = "cards";
+    for (const c of chart.cards) {
+      const card = document.createElement("div");
+      card.className = "card";
+      const label = document.createElement("div");
+      label.className = "card-label";
+      label.textContent = c.label;
+      const value = document.createElement("div");
+      value.className = "card-value" + (c.value < 0 ? " negative" : "");
+      value.textContent = c.value_text;
+      card.append(label, value);
+      grid.appendChild(card);
+    }
+    container.appendChild(grid);
+  }
+
+  const compact = new Intl.NumberFormat("en", { notation: "compact", maximumFractionDigits: 1 });
+
+  function baseOptions(chart) {
+    const horizontal = chart.type === "hbar";
+    const stacked = chart.type === "stacked_bar" || (chart.type === "area" && chart.series.length > 1);
+    const valueAxis = {
+      stacked,
+      beginAtZero: true,
+      grid: { color: getVar("--grid") },
+      border: { display: false },
+      ticks: { color: getVar("--muted"), callback: (v) => compact.format(v) + (chart.percent_axis ? "%" : "") },
+    };
+    const categoryAxis = {
+      stacked,
+      grid: { display: false },
+      ticks: { color: getVar("--muted"), autoSkip: !horizontal, maxRotation: 45 },
+      title: { display: !!chart.x_label, text: chart.x_label, color: getVar("--muted") },
+    };
+    return {
+      responsive: true,
+      maintainAspectRatio: false,
+      indexAxis: horizontal ? "y" : "x",
+      interaction: { mode: chart.type === "line" || chart.type === "area" ? "index" : "nearest", intersect: false },
+      scales: horizontal ? { x: valueAxis, y: categoryAxis } : { x: categoryAxis, y: valueAxis },
+      plugins: {
+        legend: { display: chart.series.length > 1, position: "top", align: "start",
+                  labels: { boxWidth: 12, boxHeight: 12, color: getVar("--text") } },
+        tooltip: {
+          // Exact backend-formatted numbers, never re-rounded in the browser.
+          callbacks: { label: (ctx) => `${ctx.dataset.label}: ${chart.series[ctx.datasetIndex].texts[ctx.dataIndex]}` },
+        },
+      },
+    };
+  }
+
+  function getVar(name) {
+    return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+  }
+
+  // chart = { type: bar|hbar|stacked_bar|line|area, labels, series: [{name, values, texts}], x_label, percent_axis, note }
+  function renderXYChart(container, chart) {
+    const box = document.createElement("div");
+    box.className = "chart-box";
+    const rows = chart.labels.length;
+    box.style.height = (chart.type === "hbar" ? Math.max(220, rows * 28 + 60) : 320) + "px";
+    const canvas = document.createElement("canvas");
+    canvas.setAttribute("role", "img");
+    canvas.setAttribute("aria-label", chart.series.map((s) => s.name).join(", ") + " by " + chart.x_label);
+    box.appendChild(canvas);
+    container.appendChild(box);
+
+    const isLine = chart.type === "line" || chart.type === "area";
+    const datasets = chart.series.map((s, i) => {
+      const color = SERIES_COLORS[i % SERIES_COLORS.length];
+      return isLine
+        ? { label: s.name, data: s.values, borderColor: color, backgroundColor: color + (chart.type === "area" ? "33" : ""),
+            fill: chart.type === "area", borderWidth: 2, pointRadius: rows > 24 ? 0 : 3, pointHoverRadius: 5,
+            tension: 0.25, spanGaps: false }
+        : { label: s.name, data: s.values, backgroundColor: color, borderRadius: 4,
+            borderSkipped: chart.type === "stacked_bar" ? false : "start",
+            borderColor: getVar("--surface"), borderWidth: chart.type === "stacked_bar" ? 1 : 0,
+            maxBarThickness: 36, categoryPercentage: 0.8, barPercentage: 0.9 };
+    });
+    charts.push(new Chart(canvas, { type: isLine ? "line" : "bar", data: { labels: chart.labels, datasets }, options: baseOptions(chart) }));
+  }
+
+  // chart = { type: pie|donut, labels, series: [{name, values, texts}], percents, total_text, note }
+  function renderPie(container, chart) {
+    const box = document.createElement("div");
+    box.className = "pie-box";
+    const chartBox = document.createElement("div");
+    chartBox.className = "chart-box";
+    const canvas = document.createElement("canvas");
+    canvas.setAttribute("role", "img");
+    canvas.setAttribute("aria-label", `${chart.series[0].name} by ${chart.x_label}`);
+    chartBox.appendChild(canvas);
+
+    const colors = chart.labels.map((l, i) => (l === "Other" ? OTHER_COLOR : SERIES_COLORS[i % SERIES_COLORS.length]));
+    const legend = document.createElement("table");
+    legend.className = "pie-legend";
+    chart.labels.forEach((label, i) => {
+      const row = legend.insertRow();
+      const sw = document.createElement("span");
+      sw.className = "swatch";
+      sw.style.background = colors[i];
+      row.insertCell().appendChild(sw);
+      row.insertCell().textContent = label;
+      const value = row.insertCell(); value.className = "num"; value.textContent = chart.series[0].texts[i];
+      const pct = row.insertCell(); pct.className = "num"; pct.textContent = chart.percents[i] + "%";
+    });
+    const totalRow = legend.insertRow();
+    totalRow.className = "total";
+    totalRow.insertCell();
+    totalRow.insertCell().textContent = "Total";
+    const totalValue = totalRow.insertCell(); totalValue.className = "num"; totalValue.textContent = chart.total_text;
+    totalRow.insertCell();
+
+    box.append(chartBox, legend);
+    container.appendChild(box);
+    charts.push(new Chart(canvas, {
+      type: chart.type === "donut" ? "doughnut" : "pie",
+      data: { labels: chart.labels, datasets: [{ data: chart.series[0].values, backgroundColor: colors,
+              borderColor: getVar("--surface"), borderWidth: 2 }] },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        cutout: chart.type === "donut" ? "58%" : 0,
+        plugins: {
+          legend: { display: false },
+          tooltip: { callbacks: { label: (ctx) => `${chart.series[0].texts[ctx.dataIndex]} (${chart.percents[ctx.dataIndex]}%)` } },
+        },
+      },
+    }));
+  }
+
+  function renderChart(container, chart) {
+    if (chart.type === "cards") renderCards(container, chart);
+    else if (chart.type === "pie" || chart.type === "donut") renderPie(container, chart);
+    else renderXYChart(container, chart);
+    note(container, chart.note);
+  }
+
+  // Shows the chart when there is one (with a toggle to the exact table), otherwise the table.
+  function renderResult(container, metadata) {
+    const chart = metadata?.chart;
+    const table = metadata?.table;
+    const canDraw = chart && (chart.type === "cards" || window.Chart);
+    if (!canDraw && !table?.rows?.length) return;
+
+    container.classList.add("has-result");
+    const result = document.createElement("div");
+    result.className = "result";
+    container.appendChild(result);
+
+    if (!canDraw) {
+      renderTable(result, table);
+      if (chart) note(result, "Charts need internet access to load; showing the table instead.");
+      return;
+    }
+
+    const chartView = document.createElement("div");
+    renderChart(chartView, chart);
+    result.appendChild(chartView);
+    if (!table?.rows?.length) return;
+
+    const tableView = document.createElement("div");
+    tableView.hidden = true;
+    renderTable(tableView, table);
+    result.appendChild(tableView);
+
+    const toggle = document.createElement("button");
+    toggle.type = "button";
+    toggle.className = "toggle";
+    toggle.textContent = "Show table";
+    toggle.addEventListener("click", () => {
+      const showTable = tableView.hidden;
+      tableView.hidden = !showTable;
+      chartView.hidden = showTable;
+      toggle.textContent = showTable ? "Show chart" : "Show table";
+    });
+    result.appendChild(toggle);
+  }
+
+  function renderSource(container, metadata) {
+    const text = SOURCE_LABELS[metadata?.route];
+    if (!text) return;
+    const span = document.createElement("span");
+    span.className = "source";
+    span.textContent = text;
+    container.appendChild(span);
+  }
+
+  async function sendMessage(text) {
+    bubble("user", text);
+    const payload = { message: text, history: history.slice(-MAX_HISTORY) };
+    history.push({ role: "user", content: text });
+
+    const reply = bubble("assistant typing", "Thinking…");
+    send.disabled = true;
+
+    try {
+      const res = await fetch(BACKEND_URL.replace(/\/+$/, "") + "/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      if (!res.ok) throw new Error("Server error " + res.status);
+
+      const data = await res.json();
+      const answer = data.reply?.trim() || "(empty reply)";
+      reply.className = "msg assistant";
+      renderAnswer(reply, answer);
+      renderResult(reply, data.metadata);
+      renderSource(reply, data.metadata);
+      history.push({ role: "assistant", content: answer });
+    } catch (err) {
+      reply.className = "msg error";
+      reply.textContent = "Couldn't reach the assistant. Check that the backend is running.";
+      history.pop();
+    } finally {
+      send.disabled = false;
+      input.focus();
+      chat.scrollTop = chat.scrollHeight;
+    }
+  }
+
+  document.getElementById("form").addEventListener("submit", (e) => {
+    e.preventDefault();
+    const text = input.value.trim();
+    if (!text || send.disabled) return;
+    input.value = "";
+    sendMessage(text);
+  });
+
+  input.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      document.getElementById("form").requestSubmit();
+    }
+  });
+
+  document.getElementById("clear").addEventListener("click", () => {
+    history = [];
+    charts.forEach((c) => c.destroy());
+    charts = [];
+    showEmpty();
+    input.focus();
+  });
+
+  showEmpty();
+  input.focus();
+</script>
+</body>
+</html>
